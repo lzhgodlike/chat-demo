@@ -3,6 +3,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { useTranslate } from '../../i18n/index.js'
 import { IconPanelLeftOutline16, IconSettingsOutline16, NewChatIcon } from '../base/icons.js'
 import { setSiderCollapsed } from '../../services/settings.js'
+import { logout, useAuth } from '../../services/auth.js'
+import { SERVER_MODE } from '../../services/runtime.js'
 import { groupSessions } from '../../services/chat/sessionGroups.js'
 import { newChat, removeSession, useChatStore } from '../../services/chat/store.js'
 import type { SessionSummary } from '../../services/chat/types.js'
@@ -20,6 +22,7 @@ export const Sider = ({ mobile = false }: { mobile?: boolean }) => {
   const t = useTranslate()
   const sessions = useChatStore((state) => state.sessions)
   const activeId = useChatStore((state) => state.activeId)
+  const user = useAuth((state) => state.user)
   const [now, setNow] = useState(Date.now)
   const groups = useMemo(() => groupSessions(sessions, now, t), [sessions, now, t])
   const [deleting, setDeleting] = useState<SessionSummary | null>(null)
@@ -91,6 +94,16 @@ export const Sider = ({ mobile = false }: { mobile?: boolean }) => {
           ))}
         </div>
       </div>
+      {SERVER_MODE && user ? (
+        <div className={styles.account}>
+          <span className={styles.userName} title={user.username}>
+            {user.username}
+          </span>
+          <button type="button" className={styles.logout} onClick={() => void logout()}>
+            {t('logout')}
+          </button>
+        </div>
+      ) : null}
       <div className={styles.bottom}>
         <button type="button" className={styles.settings} onClick={() => openSettings('general')}>
           <span className={styles.settingsIcon}>

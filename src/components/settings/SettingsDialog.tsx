@@ -14,7 +14,9 @@ import {
   clearHistory,
   exportHistory,
   importHistory,
+  uploadLocalHistory,
 } from '../../services/chat/backup.js'
+import { SERVER_MODE } from '../../services/runtime.js'
 import { useIsMobile } from '../../app/viewport.js'
 import { useChatStore } from '../../services/chat/store.js'
 import { regionCodes, getRegionName, provinces } from '../../services/location.js'
@@ -103,8 +105,9 @@ const SettingsContent = () => {
             </>
           ) : (
             <>
-              <ApiKeyField editor={apiKeyEditor} />
+              {SERVER_MODE ? null : <ApiKeyField editor={apiKeyEditor} />}
               <ImportHistory historyImport={historyImport} disabled={historyBusy} />
+              {SERVER_MODE ? <UploadLocalHistory disabled={historyBusy} /> : null}
               <ExportHistory disabled={historyBusy} />
               <SettingCell
                 label={t('deleteAllSessions')}
@@ -121,7 +124,7 @@ const SettingsContent = () => {
                   </Button>
                 }
               />
-              {isMobile ? <ApiKeyConfirm editor={apiKeyEditor} /> : null}
+              {isMobile && !SERVER_MODE ? <ApiKeyConfirm editor={apiKeyEditor} /> : null}
             </>
           )}
         </div>
@@ -164,7 +167,7 @@ const DeleteAllConfirm = ({
         </div>
       }
     >
-      {t('deleteAllSessionsModalDescription')}
+      {SERVER_MODE ? t('deleteAllSessionsModalDescriptionServer') : t('deleteAllSessionsModalDescription')}
     </Modal>
   )
 }
@@ -331,13 +334,45 @@ const ImportConfirm = ({
           <Button variant="outlined" size="m" autoFocus onClick={historyImport.cancel}>
             {t('cancel')}
           </Button>
-          <Button variant="dangerOutlined" size="m" onClick={() => void historyImport.confirm()}>
+          <Button
+            variant={SERVER_MODE && historyImport.mode === 'merge' ? 'primary' : 'dangerOutlined'}
+            size="m"
+            onClick={() => void historyImport.confirm()}
+          >
             {t('historyImportConfirm')}
           </Button>
         </>
       }
     >
-      <div className={styles.importConfirmText}>{t('historyImportConfirmDescription')}</div>
+      {SERVER_MODE ? (
+        <>
+          <div className={styles.importMode} role="radiogroup" aria-label={t('historyImportMode')}>
+            <label className={styles.importModeOption}>
+              <input
+                type="radio"
+                name="history-import-mode"
+                checked={historyImport.mode === 'replace'}
+                onChange={() => historyImport.setMode('replace')}
+              />
+              {t('historyImportModeReplace')}
+            </label>
+            <label className={styles.importModeOption}>
+              <input
+                type="radio"
+                name="history-import-mode"
+                checked={historyImport.mode === 'merge'}
+                onChange={() => historyImport.setMode('merge')}
+              />
+              {t('historyImportModeMerge')}
+            </label>
+          </div>
+          <div className={styles.importConfirmText}>
+            {t('historyImportConfirmDescriptionServer')}
+          </div>
+        </>
+      ) : (
+        <div className={styles.importConfirmText}>{t('historyImportConfirmDescription')}</div>
+      )}
     </Modal>
   )
 }
@@ -436,11 +471,15 @@ const SettingCell = ({
   )
 }
 
+/** 导入方式：服务器模式默认覆盖，可切换为合并。 */
+type HistoryImportMode = 'replace' | 'merge'
+
 /** 选文件后先提示覆盖；确认后才检查文件并执行导入，任何错误都提示导入失败。 */
 const useHistoryImport = () => {
   const [file, setFile] = useState<File | null>(null)
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState<Status>(null)
+  const [mode, setMode] = useState<HistoryImportMode>('replace')
   const importing = useRef(false)
 
   const confirm = async () => {
@@ -452,7 +491,7 @@ const useHistoryImport = () => {
     setBusy(true)
     setStatus(null)
     try {
-      const count = await importHistory(file)
+      const count = await importHistory(file, SERVER_MODE ? mode : 'replace')
       setStatus({ key: count === 1 ? 'historyImportedOne' : 'historyImported', params: { count } })
     } catch {
       setStatus({ key: 'historyImportFailed', error: true })
@@ -462,7 +501,16 @@ const useHistoryImport = () => {
     }
   }
 
-  return { file, busy, status, select: setFile, cancel: () => setFile(null), confirm }
+  return {
+    file,
+    busy,
+    status,
+    mode,
+    setMode,
+    select: setFile,
+    cancel: () => setFile(null),
+    confirm,
+  }
 }
 
 /** 导入 = 覆盖：用选中文件替换本地全部会话与附件。 */
@@ -479,7 +527,9 @@ const ImportHistory = ({
   return (
     <SettingCell
       label={t('historyImport')}
-      description={t('historyImportDescription')}
+      description={
+        SERVER_MODE ? t('historyImportDescriptionServer') : t('historyImportDescription')
+      }
       status={historyImport.status}
       action={
         <>
@@ -507,6 +557,48 @@ const ImportHistory = ({
             }}
           />
         </>
+      }
+    />
+  )
+}
+
+/** 首次迁移到服务器：把旧版浏览器本机历史以合并方式上传。 */
+const UploadLocalHistory = ({ disabled }: { disabled: boolean }) => {
+  const t = useTranslate()
+  const [busy, setBusy] = useState(false)
+  const [status, setStatus] = useState<Status>(null)
+
+  const onUpload = async () => {
+    setBusy(true)
+    setStatus(null)
+    try {
+      const count = await uploadLocalHistory()
+      setStatus({
+        key: count > 0 ? 'historyImportedLocalToServer' : 'historyImportLocalToServerEmpty',
+      })
+    } catch {
+      setStatus({ key: 'historyImportLocalToServerFailed', error: true })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <SettingCell
+      label={t('historyImportLocalToServer')}
+      description={t('historyImportLocalToServerDescription')}
+      status={status}
+      action={
+        <Button
+          variant="outlined"
+          size="m"
+          className={styles.cellButton}
+          disabled={disabled || busy}
+          onClick={() => void onUpload()}
+        >
+          <IconUploadOutline14 />
+          {t('upload')}
+        </Button>
       }
     />
   )
@@ -540,7 +632,9 @@ const ExportHistory = ({ disabled }: { disabled: boolean }) => {
   return (
     <SettingCell
       label={t('exportAllLabel')}
-      description={t('historyExportDescription')}
+      description={
+        SERVER_MODE ? t('historyExportDescriptionServer') : t('historyExportDescription')
+      }
       status={status}
       action={
         <Button

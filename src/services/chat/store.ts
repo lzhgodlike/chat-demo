@@ -13,6 +13,7 @@ import {
 import { useSettings } from '../settings.js'
 import { appendBranch, getVisibleMessages, normalizeSession, selectVersion } from './branches.js'
 import * as db from './db.js'
+import { historyStore } from './storage.js'
 import {
   clearAllDrafts,
   clearDraft,
@@ -194,7 +195,7 @@ const persist = (sessionId: string) => {
     }
     const epoch = historyEpoch
     const files = pendingFiles.get(sessionId)
-    void db
+    void historyStore
       .saveSession(session, files)
       .then(() => {
         if (epoch !== historyEpoch || !getSession(sessionId)) {
@@ -251,11 +252,14 @@ export const bindChatPersistence = () => {
       save()
     }
   }
+  const onOnline = () => retrySaveSessions()
   document.addEventListener('visibilitychange', onVisibilityChange)
   window.addEventListener('pagehide', save)
+  window.addEventListener('online', onOnline)
   return () => {
     document.removeEventListener('visibilitychange', onVisibilityChange)
     window.removeEventListener('pagehide', save)
+    window.removeEventListener('online', onOnline)
   }
 }
 
@@ -305,7 +309,7 @@ export const initChat = (): Promise<void> => {
   set({ initError: false })
   initTask = (async () => {
     try {
-      const summaries = await db.loadSessionSummaries()
+      const summaries = await historyStore.loadSessionSummaries()
       if (epoch === historyEpoch) {
         set({ ready: true, sessions: sortSessions(summaries) })
       }
@@ -338,7 +342,7 @@ const ensureSessionLoaded = (id: string): Promise<void> => {
   sessionLoads.set(id, load)
   load.promise = (async () => {
     try {
-      const stored = await db.loadSession(id)
+      const stored = await historyStore.loadSession(id)
       if (epoch !== historyEpoch || sessionLoads.get(id) !== load) {
         return
       }
@@ -392,10 +396,12 @@ const waitForIdle = (sessionId?: string) =>
   })
 
 /**
- * 替换历史对话：先写入暂存，成功后原子替换旧记录；写入为空即删除全部会话与附件。
- * 期间停止生成并禁止修改会话；失败时清除暂存，保留原有记录。
+ * 替换历史对话的公共流程：停止生成、锁定界面、清空内存缓存，成功后用新的摘要列表重置列表。
+ * 本地模式与服务器模式共用；`run` 负责真正的数据替换并返回新的摘要。
  */
-export const replaceHistory = async (write: () => Promise<void>): Promise<number> => {
+const applyHistoryReplacement = async (
+  run: () => Promise<SessionSummary[]>
+): Promise<number> => {
   if (get().importingHistory) {
     throw new Error('History replacement is already in progress')
   }
@@ -410,15 +416,7 @@ export const replaceHistory = async (write: () => Promise<void>): Promise<number
     initTask = undefined
     sessionLoads.clear()
     await waitForIdle()
-    await db.clearStaging()
-    let summaries: SessionSummary[]
-    try {
-      await write()
-      summaries = await db.commitStaging()
-    } catch (error) {
-      await db.clearStaging().catch(db.reportStorageError('clear unfinished history replacement'))
-      throw error
-    }
+    const summaries = await run()
     sessionAccess.clear()
     unsavedSessions.clear()
     pendingFiles.clear()
@@ -444,6 +442,60 @@ export const replaceHistory = async (write: () => Promise<void>): Promise<number
       void initChat()
     }
   }
+}
+
+/**
+ * 替换本地历史对话：先写入暂存，成功后原子替换旧记录；写入为空即删除全部会话与附件。
+ * 期间停止生成并禁止修改会话；失败时清除暂存，保留原有记录。
+ */
+export const replaceHistory = (write: () => Promise<void>): Promise<number> =>
+  applyHistoryReplacement(async () => {
+    await db.clearStaging()
+    try {
+      await write()
+      return await db.commitStaging()
+    } catch (error) {
+      await db.clearStaging().catch(db.reportStorageError('clear unfinished history replacement'))
+      throw error
+    }
+  })
+
+/**
+ * 服务器模式的历史替换：服务端已经完成原子操作，这里只清空本地缓存并重新拉取列表。
+ * `run` 为导入、清空等服务器操作。
+ */
+export const replaceHistoryFromServer = (run: () => Promise<unknown>): Promise<number> =>
+  applyHistoryReplacement(async () => {
+    // 等待所有在途保存落盘，避免导入/清空之后又被迟到的 PUT 写回。
+    await historyStore.waitForIdle()
+    await run()
+    return historyStore.loadSessionSummaries()
+  })
+
+/** 退出登录或切换账号时重置内存状态；服务器数据保持不变。 */
+export const resetChat = () => {
+  for (const controller of Object.values(get().streaming)) {
+    controller.abort()
+  }
+  historyEpoch += 1
+  initTask = undefined
+  sessionLoads.clear()
+  sessionAccess.clear()
+  unsavedSessions.clear()
+  pendingFiles.clear()
+  deletionTasks.clear()
+  clearAllDrafts()
+  set({
+    ready: false,
+    initError: false,
+    importingHistory: false,
+    sessions: [],
+    sessionCache: {},
+    sessionLoadErrors: {},
+    sessionSaveErrors: {},
+    activeId: null,
+    streaming: {},
+  })
 }
 
 export const newChat = () => {
@@ -479,7 +531,7 @@ export const renameSession = (id: string, title: string) => {
         session.id === id ? { ...session, title } : session
       ),
     }))
-    void db.renameSession(id, title).catch(db.reportStorageError('rename session'))
+    void historyStore.renameSession(id, title).catch(db.reportStorageError('rename session'))
   }
 }
 
@@ -506,7 +558,7 @@ const removeSessionData = async (id: string): Promise<boolean> => {
     if (epoch !== historyEpoch) {
       return false
     }
-    await db.deleteSession(id)
+    await historyStore.deleteSession(id)
     if (epoch !== historyEpoch) {
       return true
     }
@@ -798,7 +850,7 @@ const ensureServerId = async (apiKey: string, file: FileAttachment): Promise<str
   if (task?.status === 'done') {
     return task.serverId
   }
-  const blob = await db.loadFile(file.id)
+  const blob = await historyStore.loadFile(file.id)
   if (!blob) {
     return null
   }

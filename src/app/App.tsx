@@ -24,6 +24,7 @@ import { stopReadAloud } from '../services/speech/readAloud.js'
 import { CollapsedSider } from '../components/sider/CollapsedSider.js'
 import { closeMobileSider } from '../components/sider/mobileSiderState.js'
 import { MobileSider, Sider } from '../components/sider/Sider.js'
+import { SERVER_MODE } from '../services/runtime.js'
 import styles from './App.module.css'
 
 export const App = () => {
@@ -68,6 +69,10 @@ export const App = () => {
   useEffect(closeMobileSider, [activeId, isMobile])
 
   useEffect(() => {
+    if (SERVER_MODE) {
+      // 服务器版由 Root 在登录成功后调用 initChat；API Key 由服务端持有。
+      return
+    }
     void initChat()
     // 首次打开先在设置里输入 API Key
     ensureApiKey()
@@ -80,7 +85,7 @@ export const App = () => {
         <main className={styles.main}>
           {saveError ? (
             <div className={styles.saveError} role="alert">
-              <span>{t('sessionSaveFailed')}</span>
+              <span>{t(SERVER_MODE ? 'sessionSaveFailedServer' : 'sessionSaveFailed')}</span>
               <Button
                 variant="outlined"
                 size="s"

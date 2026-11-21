@@ -1,0 +1,9 @@
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 14px;
+  background-color: var(--dsw-alias-bg-base);
+}

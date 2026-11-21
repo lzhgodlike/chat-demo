@@ -32,6 +32,16 @@ interface ChatDB extends DBSchema {
 }
 
 let dbPromise: Promise<IDBPDatabase<ChatDB>> | null = null
+/** 本地模式使用 chat-demo；服务器模式按用户隔离缓存，避免多账号串数据。 */
+let databaseName = 'chat-demo'
+
+/** 切换缓存数据库；必须在首次读取前调用。 */
+export const configureDatabase = (name: string) => {
+  if (name !== databaseName) {
+    databaseName = name
+    dbPromise = null
+  }
+}
 
 const storedSummary = (session: Session): StoredSessionSummary => ({
   ...toSessionSummary(session),
@@ -54,7 +64,7 @@ const abortTransaction = (tx: { abort(): void }) => {
 
 // 每个操作拿到连接后立即创建事务；IndexedDB 按创建顺序执行范围重叠的事务，读取总能看到之前发起的写入。
 const getDB = () =>
-  (dbPromise ??= openDB<ChatDB>('chat-demo', DB_VERSION, {
+  (dbPromise ??= openDB<ChatDB>(databaseName, DB_VERSION, {
     upgrade(db, _oldVersion, _newVersion, tx) {
       // 初始化当前格式需要的存储与索引，不迁移旧消息。
       for (const name of ['sessions', 'files', 'sessionsStaging', 'filesStaging'] as const) {
@@ -80,6 +90,77 @@ export const loadSessionSummaries = async (): Promise<SessionSummary[]> =>
 
 export const loadSession = async (id: string): Promise<Session | undefined> =>
   (await getDB()).get('sessions', id)
+
+/** 服务器模式的列表缓存：只保存摘要，打开会话时再从服务器读取。 */
+export const replaceSessionSummaries = async (summaries: SessionSummary[]): Promise<void> => {
+  const tx = (await getDB()).transaction('sessionSummaries', 'readwrite')
+  await Promise.all([
+    (async () => {
+      await tx.store.clear()
+      for (const summary of summaries) {
+        await tx.store.put({ ...summary, fileIds: [] })
+      }
+    })(),
+    tx.done,
+  ])
+}
+
+/** 清空当前用户的本地缓存；服务器模式下退出登录或切换账号时使用。 */
+export const clearLocalHistory = async (): Promise<void> => {
+  const tx = (await getDB()).transaction(
+    ['sessions', 'sessionSummaries', 'files', 'sessionsStaging', 'filesStaging'],
+    'readwrite'
+  )
+  await Promise.all([
+    tx.objectStore('sessions').clear(),
+    tx.objectStore('sessionSummaries').clear(),
+    tx.objectStore('files').clear(),
+    tx.objectStore('sessionsStaging').clear(),
+    tx.objectStore('filesStaging').clear(),
+    tx.done,
+  ])
+}
+
+/** 读取旧版本地数据库（固定名称 chat-demo），用于首次迁移到服务器。 */
+export const loadLegacyHistory = async (): Promise<{
+  sessions: Session[]
+  files: Map<string, Blob>
+}> => {
+  const databases = (
+    indexedDB as IDBFactory & {
+      databases?: () => Promise<{ name?: string }[]>
+    }
+  ).databases
+  if (databases) {
+    const list = await databases.call(indexedDB)
+    if (list.every((item) => item.name !== 'chat-demo')) {
+      return { sessions: [], files: new Map() }
+    }
+  }
+  const legacy = await openDB<ChatDB>('chat-demo', DB_VERSION, {
+    upgrade(db) {
+      for (const name of ['sessions', 'files', 'sessionsStaging', 'filesStaging'] as const) {
+        if (!db.objectStoreNames.contains(name)) {
+          db.createObjectStore(name, { keyPath: 'id' })
+        }
+      }
+      if (!db.objectStoreNames.contains('sessionSummaries')) {
+        const store = db.createObjectStore('sessionSummaries', { keyPath: 'id' })
+        store.createIndex('fileIds', 'fileIds', { multiEntry: true })
+      }
+    },
+  })
+  try {
+    const sessions = await legacy.getAll('sessions')
+    const files = new Map<string, Blob>()
+    for (const file of await legacy.getAll('files')) {
+      files.set(file.id, file.blob)
+    }
+    return { sessions, files }
+  } finally {
+    legacy.close()
+  }
+}
 
 export const saveSession = async (session: Session, files: StoredFile[] = []): Promise<void> => {
   const summary = storedSummary(session)

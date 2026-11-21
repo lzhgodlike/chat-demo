@@ -1,6 +1,7 @@
 import * as db from '../db.js'
 import { BackupError, fail } from './errors.js'
 import type { SessionIndexEntry } from './format.js'
+import { imageType } from './imageType.js'
 import { INDEX_PATH, MANIFEST_PATH, USER_PATH, parseSessionPath, sessionFilesDir } from './paths.js'
 import { checkManifest, readSessionFile, readSessionIndex } from './schema.js'
 import { toLocalSession } from './toLocal.js'
@@ -12,34 +13,6 @@ import {
   skipEntry,
   type ArchiveEntry,
 } from './zipReader.js'
-
-/** 从原件字节补充图片 MIME；无法识别时为空字符串，图片身份仍由归档的 is_image 决定。 */
-const imageType = (bytes: Uint8Array): string => {
-  const startsWith = (...prefix: number[]) => prefix.every((byte, index) => bytes[index] === byte)
-  const header = new TextDecoder('ascii').decode(bytes.subarray(0, 12))
-  if (startsWith(0xff, 0xd8, 0xff)) {
-    return 'image/jpeg'
-  }
-  if (startsWith(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)) {
-    return 'image/png'
-  }
-  if (header.startsWith('GIF87a') || header.startsWith('GIF89a')) {
-    return 'image/gif'
-  }
-  if (header.startsWith('RIFF') && header.slice(8, 12) === 'WEBP') {
-    return 'image/webp'
-  }
-  if (startsWith(0x42, 0x4d)) {
-    return 'image/bmp'
-  }
-  if (startsWith(0x49, 0x49, 0x2a, 0) || startsWith(0x4d, 0x4d, 0, 0x2a)) {
-    return 'image/tiff'
-  }
-  if (header.slice(4, 8) === 'ftyp' && ['avif', 'avis'].includes(header.slice(8, 12))) {
-    return 'image/avif'
-  }
-  return ''
-}
 
 const readJson = async (entry: ArchiveEntry): Promise<unknown> => {
   const text = await (await readEntry(entry)).text()
@@ -54,7 +27,7 @@ const readJson = async (entry: ArchiveEntry): Promise<unknown> => {
  * 检查 ZIP 格式、首个 manifest 条目及格式版本。
  * 校验失败时保留正在生成的回答和现有暂存数据。
  */
-export const checkArchiveFormat = async (file: File): Promise<void> => {
+export const checkArchiveFormat = async (file: Blob): Promise<void> => {
   if (!(await isZipFile(file))) {
     fail('backupUnrecognized')
   }
@@ -78,7 +51,7 @@ export const checkArchiveFormat = async (file: File): Promise<void> => {
  * 会话读完立即暂存，只保留图片路径映射；图片全部读完后逐会话回填 MIME，不改变图片身份。
  * 写入导入暂存存储；调用方负责先清空暂存，成功后替换正式数据，失败时清理暂存。
  */
-export const importArchive = async (file: File): Promise<void> => {
+export const importArchive = async (file: Blob): Promise<void> => {
   if (!(await isZipFile(file))) {
     fail('backupUnrecognized')
   }

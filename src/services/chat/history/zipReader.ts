@@ -17,7 +17,7 @@ const invalid = (): never => {
 }
 
 /** 本地文件头签名 PK\x03\x04，用于在解析前区分 ZIP 与其他文件。 */
-export const isZipFile = async (file: File) => {
+export const isZipFile = async (file: Blob) => {
   const bytes = new Uint8Array(await file.slice(0, 4).arrayBuffer())
   return bytes.length === 4 && bytes.every((byte, index) => byte === [0x50, 0x4b, 3, 4][index])
 }
@@ -32,7 +32,7 @@ const crcTable = Uint32Array.from({ length: 256 }, (_, value) => {
   return crc >>> 0
 })
 
-const readBytes = async (file: File, start: number, length: number) => {
+const readBytes = async (file: Blob, start: number, length: number) => {
   if (start < 0 || length < 0 || start + length > file.size) {
     invalid()
   }
@@ -85,7 +85,7 @@ type Entry = {
   offset: number
 }
 
-const readDirectory = async (file: File): Promise<{ entries: Entry[]; offset: number }> => {
+const readDirectory = async (file: Blob): Promise<{ entries: Entry[]; offset: number }> => {
   if (file.size < 22) {
     invalid()
   }
@@ -177,7 +177,7 @@ const readDirectory = async (file: File): Promise<{ entries: Entry[]; offset: nu
   return { entries: entries.sort((a, b) => a.offset - b.offset), offset }
 }
 
-const readEntryOffset = async (file: File, entry: Entry, boundary: number) => {
+const readEntryOffset = async (file: Blob, entry: Entry, boundary: number) => {
   if (entry.offset + 30 > boundary) {
     invalid()
   }
@@ -238,7 +238,7 @@ export type ArchiveEntry = {
  * 按条目在文件中的物理顺序逐条、逐块解压，跳过目录条目。
  * 调用方必须消费完当前条目的数据，再请求下一个条目。
  */
-export async function* readArchive(file: File): AsyncGenerator<ArchiveEntry> {
+export async function* readArchive(file: Blob): AsyncGenerator<ArchiveEntry> {
   const directory = await readDirectory(file)
   for (const [index, entry] of directory.entries.entries()) {
     const boundary = directory.entries[index + 1]?.offset ?? directory.offset

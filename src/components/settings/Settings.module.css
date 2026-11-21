@@ -416,6 +416,26 @@
   color: var(--dsw-alias-label-primary);
 }
 
+.importMode {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 12px;
+  border-radius: 10px;
+  background-color: var(--dsw-alias-bg-layer-2);
+}
+
+.importModeOption {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+  line-height: 22px;
+  cursor: pointer;
+}
+
 .deleteConfirm {
   max-height: calc(100dvh - 32px);
   overflow-y: auto;

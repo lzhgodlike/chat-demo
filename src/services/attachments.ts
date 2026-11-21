@@ -4,7 +4,7 @@ import { isUploadImageOversized } from '../utils/resizeUploadImage.js'
 import { uploadFile } from './api/client.js'
 import { classifyApiError, getUploadErrorInfo, isRetryableApiError } from './api/errors.js'
 import type { FilePurpose } from './api/types.js'
-import { loadFile } from './chat/db.js'
+import { historyStore } from './chat/storage.js'
 import type { FileAttachment } from './chat/types.js'
 import { ACCEPT_FILE_EXTS } from './uploadExts.js'
 
@@ -221,7 +221,7 @@ export const checkImageFileIds = async (files: FileAttachment[], signal: AbortSi
       continue
     }
     signal.throwIfAborted()
-    const oversized = await loadFile(file.id)
+    const oversized = await historyStore.loadFile(file.id)
       .then((blob) => blob && isUploadImageOversized(blob))
       .catch(() => undefined)
     if (oversized === undefined) {

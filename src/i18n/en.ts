@@ -1,6 +1,34 @@
 import type { zh } from './zh.js'
 
 export const en = {
+  loginTitle: 'Sign in',
+  loginUsername: 'Username',
+  loginPassword: 'Password',
+  loginSubmit: 'Sign in',
+  loginSubmitting: 'Signing in...',
+  loginHint: 'Accounts are created by the administrator. Conversations are stored on the server after sign-in.',
+  serverUnreachable: 'Cannot reach the server. Check your connection and try again.',
+  loginExpired: 'Your session has expired. Please sign in again.',
+  logout: 'Sign out',
+  sessionSaveFailedServer:
+    'Conversation or attachments have not been saved to the server. Retry before closing the page.',
+  historyImportMode: 'Import mode',
+  historyImportModeReplace: 'Replace all server conversations',
+  historyImportModeMerge: 'Merge (skip existing conversations)',
+  historyImportConfirmDescriptionServer:
+    'The backup conversations and images will be written to the server. Replace deletes all existing server conversations; Merge keeps them and skips conversations with the same ID.',
+  historyImportDescriptionServer:
+    'Upload a ZIP exported from DeepSeek. Replace all server conversations or merge and skip conversations that already exist.',
+  historyExportDescriptionServer:
+    'Download all server conversations and images in the same format as the official DeepSeek export ZIP.',
+  deleteAllSessionsModalDescriptionServer:
+    'All conversations and attachments stored on the server will be deleted. Unsent drafts are cleared too.',
+  historyImportLocalToServer: 'Upload local history',
+  historyImportLocalToServerDescription:
+    'Upload legacy conversations cached in this browser to the current account using Merge.',
+  historyImportedLocalToServer: 'Local history uploaded',
+  historyImportLocalToServerEmpty: 'There is no local history to upload',
+  historyImportLocalToServerFailed: 'Failed to upload local history. Try again.',
   welcomeMessageChat250808: 'How can I help you?',
   contentCaveat: 'AI-generated, for reference only',
   expandSiderbarButton: 'Open sidebar',

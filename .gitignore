@@ -1,6 +1,9 @@
 node_modules/
 dist/
 build/
+server/dist/
+data/
+logs/
 .pnpm-store/
 .cache/
 *.log
@@ -9,3 +12,5 @@ build/
 .env.*
 !.env.example
 tmp/
+tmp-test-data/
+.zcode/

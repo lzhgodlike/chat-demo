@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { getFileViewType, isImage } from '../../services/attachments.js'
-import { loadFile } from '../../services/chat/db.js'
+import { historyStore } from '../../services/chat/storage.js'
 
 const createViewUrl = (original: Blob, type: string) => {
   const blob = original.slice(0, original.size, type || 'application/octet-stream')
@@ -22,7 +22,7 @@ export const useFileView = (source: File | string, name: string) => {
   const [state, setState] = useState<{ source: File | string; type: string; url: string | null }>()
   useEffect(() => {
     let active = true
-    const original = typeof source === 'string' ? loadFile(source) : Promise.resolve(source)
+    const original = typeof source === 'string' ? historyStore.loadFile(source) : Promise.resolve(source)
     const pending = original
       .then((blob) => (active && blob ? createViewUrl(blob, type) : null))
       .catch(() => null)
