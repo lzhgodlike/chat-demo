@@ -1,7 +1,7 @@
 {
   "name": "chat-demo",
   "version": "0.1.3",
-  "description": "基于 DeepSeek API 的聊天示例，支持静态使用或服务器端会话存储。",
+  "description": "基于 DeepSeek API 的聊天应用示例，支持静态部署与多用户服务器端会话存储。",
   "license": "MIT",
   "private": true,
   "type": "module",
